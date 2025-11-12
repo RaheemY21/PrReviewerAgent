@@ -1,0 +1,597 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Forex Trading Bot - Live Market Data</title>
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body, html, #root {
+            height: 100vh;
+            margin: 0;
+            padding: 0;
+        }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+    
+    <script type="text/babel">
+        const { useState, useEffect, useRef } = React;
+
+        // SVG Icons
+        const TrendingUp = () => (
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <polyline points="23 6 13.5 15.5 8.5 10.5 1 18"></polyline>
+                <polyline points="17 6 23 6 23 12"></polyline>
+            </svg>
+        );
+
+        const Activity = () => (
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline>
+            </svg>
+        );
+
+        const Play = () => (
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" strokeWidth="2">
+                <polygon points="5 3 19 12 5 21 5 3"></polygon>
+            </svg>
+        );
+
+        const Pause = () => (
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <rect x="6" y="4" width="4" height="16"></rect>
+                <rect x="14" y="4" width="4" height="16"></rect>
+            </svg>
+        );
+
+        const Settings = () => (
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <circle cx="12" cy="12" r="3"></circle>
+                <path d="M12 1v6m0 6v6"></path>
+            </svg>
+        );
+
+        const AlertCircle = () => (
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <circle cx="12" cy="12" r="10"></circle>
+                <line x1="12" y1="8" x2="12" y2="12"></line>
+                <line x1="12" y1="16" x2="12.01" y2="16"></line>
+            </svg>
+        );
+
+        const BarChart3 = () => (
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M3 3v18h18"></path>
+                <path d="M18 17V9"></path>
+                <path d="M13 17V5"></path>
+                <path d="M8 17v-3"></path>
+            </svg>
+        );
+
+        const Wifi = () => (
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M5 12.55a11 11 0 0 1 14.08 0"></path>
+                <path d="M1.42 9a16 16 0 0 1 21.16 0"></path>
+                <path d="M8.53 16.11a6 6 0 0 1 6.95 0"></path>
+                <line x1="12" y1="20" x2="12.01" y2="20"></line>
+            </svg>
+        );
+
+        function ForexTradingBot() {
+          const [balance, setBalance] = useState(10000);
+          const [isRunning, setIsRunning] = useState(false);
+          const [trades, setTrades] = useState([]);
+          const [openPositions, setOpenPositions] = useState([]);
+          const [logs, setLogs] = useState([]);
+          const [settings, setSettings] = useState({
+            riskPerTrade: 2,
+            maxPositions: 3,
+            strategy: 'momentum'
+          });
+          const [analyzing, setAnalyzing] = useState(false);
+          const [marketPrices, setMarketPrices] = useState({});
+          const [priceHistory, setPriceHistory] = useState({});
+          const [isLiveData, setIsLiveData] = useState(false);
+
+          const currencyPairs = [
+            { symbol: 'EURUSD', display: 'EUR/USD' },
+            { symbol: 'GBPUSD', display: 'GBP/USD' },
+            { symbol: 'USDJPY', display: 'USD/JPY' },
+            { symbol: 'AUDUSD', display: 'AUD/USD' },
+            { symbol: 'USDCAD', display: 'USD/CAD' }
+          ];
+          
+          const addLog = (message, type = 'info') => {
+            const timestamp = new Date().toLocaleTimeString();
+            setLogs(prev => [{timestamp, message, type}, ...prev.slice(0, 49)]);
+          };
+
+          // Fetch real-time forex prices
+          const fetchMarketPrices = async () => {
+            try {
+              // Using Frankfurter API (free, no limits, no API key)
+              const response = await fetch('https://api.frankfurter.app/latest?from=USD');
+              const data = await response.json();
+              
+              if (!data.rates) {
+                throw new Error('No data received');
+              }
+
+              const prices = {};
+              
+              // Convert rates to standard forex format
+              if (data.rates.EUR) {
+                prices['EUR/USD'] = 1 / data.rates.EUR; // Invert to get EUR/USD
+              }
+              if (data.rates.GBP) {
+                prices['GBP/USD'] = 1 / data.rates.GBP;
+              }
+              if (data.rates.JPY) {
+                prices['USD/JPY'] = data.rates.JPY;
+              }
+              if (data.rates.AUD) {
+                prices['AUD/USD'] = 1 / data.rates.AUD;
+              }
+              if (data.rates.CAD) {
+                prices['USD/CAD'] = data.rates.CAD;
+              }
+
+              if (Object.keys(prices).length > 0) {
+                setMarketPrices(prices);
+                setIsLiveData(true);
+                
+                // Store price history for trend analysis
+                setPriceHistory(prev => {
+                  const updated = {...prev};
+                  Object.keys(prices).forEach(pair => {
+                    if (!updated[pair]) updated[pair] = [];
+                    updated[pair].push(prices[pair]);
+                    if (updated[pair].length > 20) updated[pair].shift();
+                  });
+                  return updated;
+                });
+                
+                if (logs.length === 0) {
+                  addLog('✅ Connected to live forex data feed', 'success');
+                }
+              }
+            } catch (error) {
+              console.error('Price fetch error:', error);
+              if (!isLiveData) {
+                addLog('⚠️ Unable to fetch live prices - check internet connection', 'warning');
+              }
+            }
+          };
+
+          // Update market prices every 10 seconds
+          useEffect(() => {
+            fetchMarketPrices();
+            const priceInterval = setInterval(fetchMarketPrices, 10000);
+            return () => clearInterval(priceInterval);
+          }, []);
+
+          const calculateTechnicalIndicators = (pair) => {
+            const history = priceHistory[pair] || [];
+            if (history.length < 5) return null;
+
+            const latest = history[history.length - 1];
+            const prev = history[history.length - 2];
+            const trend = history.slice(-10);
+            
+            const avgPrice = trend.reduce((a, b) => a + b, 0) / trend.length;
+            const momentum = ((latest - avgPrice) / avgPrice) * 100;
+            const shortTermTrend = latest > prev ? 'UP' : 'DOWN';
+            const volatility = Math.max(...trend) - Math.min(...trend);
+
+            return { momentum, shortTermTrend, volatility, avgPrice };
+          };
+
+          const analyzeMarket = async () => {
+            if (!isRunning || analyzing || openPositions.length >= settings.maxPositions) return;
+            
+            setAnalyzing(true);
+            
+            const availablePairs = currencyPairs.filter(p => marketPrices[p.display]);
+            if (availablePairs.length === 0) {
+              addLog('Waiting for market data...', 'warning');
+              setAnalyzing(false);
+              return;
+            }
+
+            const randomPair = availablePairs[Math.floor(Math.random() * availablePairs.length)];
+            const pair = randomPair.display;
+            const currentPrice = marketPrices[pair];
+            const indicators = calculateTechnicalIndicators(pair);
+
+            addLog(`📊 Analyzing ${pair} at ${currentPrice.toFixed(5)}...`, 'info');
+
+            try {
+              const technicalData = indicators ? 
+                `Current price: ${currentPrice.toFixed(5)}
+                Momentum: ${indicators.momentum.toFixed(2)}%
+                Short-term trend: ${indicators.shortTermTrend}
+                Moving average: ${indicators.avgPrice.toFixed(5)}
+                Volatility: ${indicators.volatility.toFixed(5)}` :
+                `Current price: ${currentPrice.toFixed(5)}`;
+
+              const response = await fetch('https://api.anthropic.com/v1/messages', {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                  model: 'claude-sonnet-4-20250514',
+                  max_tokens: 500,
+                  system: `You are an expert forex trading algorithm analyzing REAL LIVE market data. Provide a trading signal in JSON format only.
+
+Return ONLY this JSON structure:
+{
+  "action": "BUY" or "SELL" or "HOLD",
+  "confidence": 0-100,
+  "stopLoss": price as number,
+  "takeProfit": price as number,
+  "reasoning": "brief technical reason"
+}
+
+Use the current price as entry. Set stop loss 20-30 pips away and take profit 40-60 pips away based on the pair's typical volatility.`,
+                  messages: [{
+                    role: 'user',
+                    content: `Analyze ${pair} for ${settings.strategy} strategy with LIVE market data:
+                    
+${technicalData}
+
+Risk per trade: ${settings.riskPerTrade}%
+Demo balance: $${balance.toFixed(2)}
+
+Provide trading signal based on this REAL market data.`
+                  }]
+                })
+              });
+
+              const data = await response.json();
+              const aiResponse = data.content.find(block => block.type === 'text')?.text || '';
+              
+              const jsonMatch = aiResponse.match(/\{[\s\S]*\}/);
+              if (!jsonMatch) {
+                addLog('No valid signal generated', 'warning');
+                return;
+              }
+
+              const signal = JSON.parse(jsonMatch[0]);
+              signal.entry = currentPrice;
+              
+              if (signal.action !== 'HOLD' && signal.confidence > 60) {
+                executeTrade(pair, signal);
+              } else {
+                addLog(`${pair}: ${signal.action} (${signal.confidence}% confidence) - Skipped`, 'warning');
+              }
+            } catch (error) {
+              addLog(`Analysis error: ${error.message}`, 'error');
+            } finally {
+              setAnalyzing(false);
+            }
+          };
+
+          const executeTrade = (pair, signal) => {
+            const riskAmount = balance * (settings.riskPerTrade / 100);
+            const stopDistance = Math.abs(signal.entry - signal.stopLoss);
+            const positionSize = riskAmount / stopDistance;
+            const lotSize = Math.min(positionSize / 100000, 1).toFixed(2);
+            
+            const newPosition = {
+              id: Date.now(),
+              pair,
+              type: signal.action,
+              entry: signal.entry,
+              stopLoss: signal.stopLoss,
+              takeProfit: signal.takeProfit,
+              lotSize: parseFloat(lotSize),
+              openTime: new Date().toLocaleTimeString(),
+              reasoning: signal.reasoning,
+              currentPrice: signal.entry,
+              pnl: 0,
+              isLive: true
+            };
+
+            setOpenPositions(prev => [...prev, newPosition]);
+            addLog(`🔔 OPENED ${signal.action} ${pair} @ ${signal.entry.toFixed(5)} | SL: ${signal.stopLoss.toFixed(5)} | TP: ${signal.takeProfit.toFixed(5)}`, 'success');
+            addLog(`💡 Reason: ${signal.reasoning}`, 'info');
+          };
+
+          const updatePositions = () => {
+            setOpenPositions(prev => {
+              const updated = prev.map(pos => {
+                const livePrice = marketPrices[pos.pair];
+                const newPrice = livePrice || pos.currentPrice;
+                
+                const pipValue = pos.pair.includes('JPY') ? 0.01 : 0.0001;
+                const pips = pos.type === 'BUY' 
+                  ? (newPrice - pos.entry) / pipValue
+                  : (pos.entry - newPrice) / pipValue;
+                
+                const pnl = pips * pos.lotSize * 10;
+
+                // Check stop loss and take profit
+                if (pos.type === 'BUY' && newPrice <= pos.stopLoss) {
+                  closePosition(pos, newPrice, 'Stop Loss Hit');
+                  return null;
+                }
+                if (pos.type === 'BUY' && newPrice >= pos.takeProfit) {
+                  closePosition(pos, newPrice, 'Take Profit Hit');
+                  return null;
+                }
+                if (pos.type === 'SELL' && newPrice >= pos.stopLoss) {
+                  closePosition(pos, newPrice, 'Stop Loss Hit');
+                  return null;
+                }
+                if (pos.type === 'SELL' && newPrice <= pos.takeProfit) {
+                  closePosition(pos, newPrice, 'Take Profit Hit');
+                  return null;
+                }
+
+                return { ...pos, currentPrice: newPrice, pnl };
+              });
+
+              return updated.filter(Boolean);
+            });
+          };
+
+          const closePosition = (pos, closePrice, reason) => {
+            const pipValue = pos.pair.includes('JPY') ? 0.01 : 0.0001;
+            const pips = pos.type === 'BUY' 
+              ? (closePrice - pos.entry) / pipValue
+              : (pos.entry - closePrice) / pipValue;
+            
+            const pnl = pips * pos.lotSize * 10;
+
+            setBalance(prev => prev + pnl);
+            
+            const trade = {
+              ...pos,
+              closePrice,
+              closeTime: new Date().toLocaleTimeString(),
+              pnl,
+              reason
+            };
+            
+            setTrades(prev => [trade, ...prev]);
+            addLog(`✅ CLOSED ${pos.type} ${pos.pair} @ ${closePrice.toFixed(5)} - ${reason}`, pnl > 0 ? 'success' : 'error');
+            addLog(`💰 P/L: ${pnl >= 0 ? '+' : ''}$${pnl.toFixed(2)} (${pips.toFixed(1)} pips)`, pnl > 0 ? 'success' : 'error');
+          };
+
+          useEffect(() => {
+            let analysisInterval;
+            let positionInterval;
+
+            if (isRunning) {
+              analysisInterval = setInterval(analyzeMarket, 20000);
+              positionInterval = setInterval(updatePositions, 2000);
+            }
+
+            return () => {
+              clearInterval(analysisInterval);
+              clearInterval(positionInterval);
+            };
+          }, [isRunning, analyzing, openPositions.length, balance, settings, marketPrices]);
+
+          const toggleBot = () => {
+            setIsRunning(!isRunning);
+            addLog(isRunning ? '⏸️ Bot paused' : '▶️ Bot started - Using LIVE market data', 'info');
+          };
+
+          const totalPnL = trades.reduce((sum, t) => sum + t.pnl, 0);
+          const winRate = trades.length > 0 
+            ? ((trades.filter(t => t.pnl > 0).length / trades.length) * 100).toFixed(1)
+            : 0;
+
+          return (
+            <div className="h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 text-white overflow-hidden flex flex-col">
+              <div className="bg-slate-800/50 backdrop-blur border-b border-slate-700 p-4">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className="bg-blue-500 p-2 rounded-lg">
+                      <Activity />
+                    </div>
+                    <div>
+                      <h1 className="text-xl font-bold">AI Forex Trading Bot</h1>
+                      <div className="flex items-center gap-2">
+                        <p className="text-sm text-slate-400">Demo Account - Live Market Data</p>
+                        {isLiveData && (
+                          <span className="flex items-center gap-1 text-xs text-green-400">
+                            <Wifi />
+                            LIVE
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                  <button
+                    onClick={toggleBot}
+                    className={`px-6 py-2 rounded-lg font-semibold flex items-center gap-2 transition-all ${
+                      isRunning 
+                        ? 'bg-red-500 hover:bg-red-600' 
+                        : 'bg-green-500 hover:bg-green-600'
+                    }`}
+                  >
+                    {isRunning ? <Pause /> : <Play />}
+                    {isRunning ? 'Stop Bot' : 'Start Bot'}
+                  </button>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-4 gap-4 p-4">
+                <div className="bg-slate-800/50 backdrop-blur rounded-lg p-4 border border-slate-700">
+                  <div className="text-slate-400 text-sm mb-1">Balance</div>
+                  <div className="text-2xl font-bold text-green-400">${balance.toFixed(2)}</div>
+                </div>
+                <div className="bg-slate-800/50 backdrop-blur rounded-lg p-4 border border-slate-700">
+                  <div className="text-slate-400 text-sm mb-1">Total P/L</div>
+                  <div className={`text-2xl font-bold ${totalPnL >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                    ${totalPnL.toFixed(2)}
+                  </div>
+                </div>
+                <div className="bg-slate-800/50 backdrop-blur rounded-lg p-4 border border-slate-700">
+                  <div className="text-slate-400 text-sm mb-1">Open Positions</div>
+                  <div className="text-2xl font-bold">{openPositions.length}</div>
+                </div>
+                <div className="bg-slate-800/50 backdrop-blur rounded-lg p-4 border border-slate-700">
+                  <div className="text-slate-400 text-sm mb-1">Win Rate</div>
+                  <div className="text-2xl font-bold text-blue-400">{winRate}%</div>
+                </div>
+              </div>
+
+              {/* Live Prices */}
+              <div className="px-4 pb-2">
+                <div className="bg-slate-800/30 rounded-lg p-3 border border-slate-700">
+                  <div className="text-xs text-slate-400 mb-2 font-semibold">LIVE MARKET PRICES</div>
+                  <div className="grid grid-cols-5 gap-3 text-sm">
+                    {currencyPairs.map(pair => (
+                      <div key={pair.display} className="flex justify-between">
+                        <span className="text-slate-300">{pair.display}</span>
+                        <span className="font-mono text-blue-300">
+                          {marketPrices[pair.display]?.toFixed(5) || '---'}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex-1 grid grid-cols-2 gap-4 p-4 overflow-hidden">
+                <div className="bg-slate-800/50 backdrop-blur rounded-lg border border-slate-700 flex flex-col">
+                  <div className="p-4 border-b border-slate-700">
+                    <h2 className="font-bold flex items-center gap-2">
+                      <TrendingUp />
+                      Open Positions ({openPositions.length})
+                    </h2>
+                  </div>
+                  <div className="flex-1 overflow-y-auto p-4 space-y-3">
+                    {openPositions.length === 0 ? (
+                      <div className="text-center text-slate-500 py-8">No open positions</div>
+                    ) : (
+                      openPositions.map(pos => (
+                        <div key={pos.id} className="bg-slate-900/50 rounded-lg p-3 border border-slate-700">
+                          <div className="flex justify-between items-start mb-2">
+                            <div>
+                              <span className={`px-2 py-1 rounded text-xs font-bold ${
+                                pos.type === 'BUY' ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'
+                              }`}>
+                                {pos.type}
+                              </span>
+                              <span className="ml-2 font-bold">{pos.pair}</span>
+                              <span className="ml-2 text-xs text-green-400">● LIVE</span>
+                            </div>
+                            <div className={`text-lg font-bold ${pos.pnl >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                              ${pos.pnl.toFixed(2)}
+                            </div>
+                          </div>
+                          <div className="grid grid-cols-2 gap-2 text-sm">
+                            <div>
+                              <span className="text-slate-500">Entry:</span> {pos.entry.toFixed(5)}
+                            </div>
+                            <div>
+                              <span className="text-slate-500">Current:</span> {pos.currentPrice.toFixed(5)}
+                            </div>
+                            <div>
+                              <span className="text-slate-500">SL:</span> {pos.stopLoss.toFixed(5)}
+                            </div>
+                            <div>
+                              <span className="text-slate-500">TP:</span> {pos.takeProfit.toFixed(5)}
+                            </div>
+                          </div>
+                          <div className="text-xs text-slate-400 mt-2">{pos.reasoning}</div>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+
+                <div className="bg-slate-800/50 backdrop-blur rounded-lg border border-slate-700 flex flex-col">
+                  <div className="p-4 border-b border-slate-700">
+                    <h2 className="font-bold flex items-center gap-2">
+                      <BarChart3 />
+                      Activity Log
+                    </h2>
+                  </div>
+                  <div className="flex-1 overflow-y-auto p-4 space-y-2 font-mono text-xs">
+                    {logs.map((log, idx) => (
+                      <div key={idx} className={`${
+                        log.type === 'success' ? 'text-green-400' :
+                        log.type === 'error' ? 'text-red-400' :
+                        log.type === 'warning' ? 'text-yellow-400' :
+                        'text-slate-400'
+                      }`}>
+                        <span className="text-slate-500">[{log.timestamp}]</span> {log.message}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              <div className="bg-slate-800/50 backdrop-blur border-t border-slate-700 p-4">
+                <div className="flex items-center gap-6">
+                  <Settings />
+                  <div className="flex items-center gap-2">
+                    <label className="text-sm text-slate-400">Risk per Trade:</label>
+                    <input
+                      type="number"
+                      value={settings.riskPerTrade}
+                      onChange={(e) => setSettings({...settings, riskPerTrade: parseFloat(e.target.value)})}
+                      className="bg-slate-700 rounded px-3 py-1 w-20 text-sm"
+                      step="0.5"
+                      min="0.5"
+                      max="5"
+                    />
+                    <span className="text-sm text-slate-400">%</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <label className="text-sm text-slate-400">Max Positions:</label>
+                    <input
+                      type="number"
+                      value={settings.maxPositions}
+                      onChange={(e) => setSettings({...settings, maxPositions: parseInt(e.target.value)})}
+                      className="bg-slate-700 rounded px-3 py-1 w-16 text-sm"
+                      min="1"
+                      max="5"
+                    />
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <label className="text-sm text-slate-400">Strategy:</label>
+                    <select
+                      value={settings.strategy}
+                      onChange={(e) => setSettings({...settings, strategy: e.target.value})}
+                      className="bg-slate-700 rounded px-3 py-1 text-sm"
+                    >
+                      <option value="momentum">Momentum</option>
+                      <option value="reversal">Reversal</option>
+                      <option value="breakout">Breakout</option>
+                    </select>
+                  </div>
+                  {analyzing && (
+                    <div className="ml-auto flex items-center gap-2 text-blue-400">
+                      <div className="w-2 h-2 bg-blue-400 rounded-full animate-pulse"></div>
+                      Analyzing live data...
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <div className="bg-amber-900/30 border-t border-amber-600/30 p-2">
+                <div className="flex items-center gap-2 justify-center text-xs text-amber-200">
+                  <AlertCircle />
+                  DEMO ACCOUNT with LIVE MARKET DATA - Practice trading with real prices but fake money
+                </div>
+              </div>
+            </div>
+          );
+        }
+
+        ReactDOM.render(<ForexTradingBot />, document.getElementById('root'));
+    </script>
+</body>
+</html>
