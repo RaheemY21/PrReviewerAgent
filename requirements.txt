@@ -1,0 +1,13 @@
+# MongoDB Repository Agent Requirements
+
+# MongoDB driver
+pymongo==4.6.1
+
+# Git operations
+GitPython==3.1.40
+
+# Optional: For better logging and configuration
+python-dotenv==1.0.0
+
+# Optional: For async operations
+dnspython==2.4.2
